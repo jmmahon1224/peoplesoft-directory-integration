@@ -1,0 +1,39 @@
+import PT_SECURITY:LDAP:AuthenticationMap;
+
+class AuthenticationMap extends PT_SECURITY:LDAP:AuthenticationMap
+   method getEmplidAttr() Returns string;
+   method setEmplidAttr(&emplidAttr As string);
+   method getDomain() Returns string;
+   method setDomain(&domain As string);
+   method AuthenticationMap();
+   
+private
+   instance string &m_emplidAttr;
+   instance string &m_domain;
+end-class;
+
+method AuthenticationMap
+   /+ Extends/implements PT_SECURITY:LDAP:AuthenticationMap.AuthenticationMap +/
+   %Super = create PT_SECURITY:LDAP:AuthenticationMap();
+   &m_emplidAttr = "";
+end-method;
+
+method getEmplidAttr
+   /+ Returns String +/
+   Return &m_emplidAttr;
+end-method;
+
+method setEmplidAttr
+   /+ &emplidAttr as String +/
+   &m_emplidAttr = &emplidAttr;
+end-method;
+
+method getDomain
+   /+ Returns String +/
+   Return &m_domain;
+end-method;
+
+method setDomain
+   /+ &domain as String +/
+   &m_domain = &domain;
+end-method;
