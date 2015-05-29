@@ -1,0 +1,639 @@
+/* ************************************************************************************************** */
+/* For &i = 1 To &ldapHandler.AuthMaps.Len                                                            */
+/*   &ldapHandler.ClearSearch();                                                                      */
+/*   &ldapHandler.SearchOr = True;                                                                    */
+/*   &ldapHandler.PopulateLDAPSearchArray(&ldapHandler.AuthMaps [&i].getAuthAttr(), "DEHAVENJ");      */
+/*   &ldapHandler.PopulateLDAPSearchArray(&ldapHandler.AuthMaps [&i].getEmplidAttr(), "908890953");   */
+/*   &ldapHandler.PopulateLDAPSearchArray(&ldapHandler.AuthMaps [&i].getEmplidAttr(), "912191132");   */
+/*   &ldapHandler.PopulateLDAPSearchArray("sn", "dribin");                                            */
+/*   &ldapHandler.PopulateLDAPSearchArray("sn", "kohr");                                              */
+/*   &ldapHandler.PopulateLDAPAttributeArray(&ldapHandler.AuthMaps [&i].getAuthAttr(), "");           */
+/*   &ldapHandler.PopulateLDAPAttributeArray(&ldapHandler.AuthMaps [&i].getEmplidAttr(), "");         */
+/*   &ldapHandler.PopulateLDAPAttributeArray("mail", "");                                             */
+/*   &ldapHandler.SearchLDAP(&i);                                                                     */
+/*   rem test the Collection;                                                                         */
+/*   For &i2 = 1 To &ldapHandler.DirectoryObjects.Len                                                 */
+/*     &UserID = &ldapHandler.DirectoryObjects [&i2].GetUserID();                                     */
+/*     &employeeID = &ldapHandler.DirectoryObjects [&i2].GetEmployeeID();                             */
+/*     &ldapHandler.DirectoryObjects [&i2].SetVariableFromAttribute("mail", &adEmailAddr);            */
+/*     MessageBox(0, "", 0, 0, "&UserID: " | &UserID | " &employeeID: " | &employeeID | " _           */
+/*     &adEmailAddr: " | &adEmailAddr);                                                               */
+/*   End-For;                                                                                         */
+/* End-For;                                                                                           */
+/* ************************************************************************************************** */
+import TU_LDAP:LDAP:*;
+
+class LDAPHandler
+   rem property array of PT_SECURITY:LDAP:AuthenticationMap AuthMaps;
+   property array of TU_LDAP:LDAP:AuthenticationMap AuthMaps;
+   property array of TU_LDAP:LDAP:DirectoryObject DirectoryObjects;
+   property array of TU_LDAP:LDAP:Attribute SearchAttributes;
+   property array of TU_LDAP:LDAP:Attribute AttributeChanges;
+   property array of TU_LDAP:LDAP:Attribute Attributes;
+   property Interlink LDAPSearch;
+   property Interlink LDAPAdd get;
+   property Interlink LDAPModify get;
+   property string SearchFilter get set;
+   property string _SearchFilter;
+   property boolean SearchFilterSet;
+   property boolean SearchOr;
+   property string DistinguishedName;
+   property number AuthMapIndex;
+   property boolean Debug;
+   property File LogFile;
+   
+   method GetLDAPConfig();
+   method ClearDirectoryObject();
+   method ClearSearch();
+   method ClearAttributeChanges();
+   method ClearAttribute();
+   method PopulateLDAPSearchArray(&attributeName As string, &attributeValue As string);
+   method PopulateLDAPAttributeArray(&attributeName As string, &attributeValue As string);
+   method PopulateLDAPAttributeArrayChanges(&attributeName As string, &attributeValue As string, &action As string);
+   method GetAllAttributes();
+   method BuildLDAPSearchQuery();
+   method SearchLDAP(&authMap As number);
+   method AddLDAP(&authMap As number);
+   method ModifyLDAP(&authMap As number);
+   
+   method DoesUserIDExist(&userID As string, &inEmplid As string, &emplidArray As array of string out, &isSameEmplid As boolean out) Returns boolean;
+   
+   method LDAPHandler();
+   
+end-class;
+
+<* get LDAPSearch
+   /+ Returns Interlink +/
+   Local Interlink &LDAP_SEARCH;
+   
+   MessageBox(0, "", 0, 0, "LDAPSearch %This.AuthMapIndex:" | %This.AuthMapIndex);
+   &LDAP_SEARCH = GetInterlink(Interlink.LDAP_SEARCH);
+   &LDAP_SEARCH.UserID_Attribute_Name = %This.AuthMaps [%This.AuthMapIndex].getAuthAttr();
+   &LDAP_SEARCH.URL = "file://psio_dir.dll";
+   &LDAP_SEARCH.BIDocValidating = "Off";
+   
+   If (%This.AuthMaps [%This.AuthMapIndex].isSSL()) Then
+      &LDAP_SEARCH.SSL = "YES";
+   Else
+      &LDAP_SEARCH.SSL = "NO";
+   End-If;
+   Return &LDAP_SEARCH;
+end-get; *>
+
+get SearchFilter
+   /+ Returns String +/
+   If %This.SearchFilterSet = False Then
+      %This.SearchFilterSet = True;
+      %This.BuildLDAPSearchQuery();
+   End-If;
+   Return %This._SearchFilter;
+end-get;
+
+set SearchFilter
+   /+ &NewValue as String +/
+   %This._SearchFilter = &NewValue;
+   %This.SearchFilterSet = True;
+end-set;
+
+get LDAPAdd
+   /+ Returns Interlink +/
+   Local Interlink &LDAP_ADD;
+   &LDAP_ADD = GetInterlink(Interlink.LDAP_ADD);
+   &LDAP_ADD.UserID_Attribute_Name = %This.AuthMaps [%This.AuthMapIndex].getAuthAttr();
+   &LDAP_ADD.URL = "file://psio_dir.dll";
+   &LDAP_ADD.BIDocValidating = "Off";
+   
+   If (%This.AuthMaps [%This.AuthMapIndex].isSSL()) Then
+      &LDAP_ADD.SSL = "YES";
+   Else
+      &LDAP_ADD.SSL = "NO";
+   End-If;
+   Return &LDAP_ADD;
+end-get;
+
+get LDAPModify
+   /+ Returns Interlink +/
+   Local Interlink &LDAP_MODIFY;
+   &LDAP_MODIFY = GetInterlink(Interlink.LDAP_MODIFY);
+   &LDAP_MODIFY.UserID_Attribute_Name = %This.AuthMaps [%This.AuthMapIndex].getAuthAttr();
+   &LDAP_MODIFY.URL = "file://psio_dir.dll";
+   &LDAP_MODIFY.BIDocValidating = "Off";
+   
+   If (%This.AuthMaps [%This.AuthMapIndex].isSSL()) Then
+      &LDAP_MODIFY.SSL = "YES";
+   Else
+      &LDAP_MODIFY.SSL = "NO";
+   End-If;
+   Return &LDAP_MODIFY;
+end-get;
+
+method LDAPHandler
+   %This.GetLDAPConfig();
+   %This.ClearDirectoryObject();
+   %This.ClearSearch();
+   
+   %This.ClearAttribute();
+   %This.Debug = False;
+end-method;
+
+method GetLDAPConfig
+   rem Local PT_SECURITY:LDAP:AuthenticationMap &authMap;
+   Local TU_LDAP:LDAP:AuthenticationMap &authMap;
+   Local string &authNMap, &dirID, &anonYN, &cnctDN, &tmpscope, &base, &authAttr, &sslYN, &order, &scope, &host, &srvr, &cnctPWD, &dirProd;
+   Local number &seqnum, &tmpport, &sslport, &port;
+   Local SQL &mapSelect, &srvrSelect, &pwdSelect;
+   Local boolean &ret;
+   
+   rem &AuthMaps = CreateArrayRept(create PT_SECURITY:LDAP:AuthenticationMap(), 0);
+   rem %This.AuthMaps = CreateArrayRept(create PT_SECURITY:LDAP:AuthenticationMap(), 0);
+   %This.AuthMaps = CreateArrayRept(create TU_LDAP:LDAP:AuthenticationMap(), 0);
+   
+   &mapSelect = CreateSQL("select DSSECMAPID,DSDIRID,SEL_YN,DSCNCTDN,DSSRCHSCOPE,LDAPSRCHBASE,DSNAMEAT,USE_SSL,CASE WHEN DSSECMAPID = 'TUHS_AUTH_MAP' THEN 1 WHEN DSSECMAPID = 'FCCC-MAD-AUTH-MAP' THEN 2 WHEN DSSECMAPID = 'FCCC-RITF-AUTH-MAP' THEN 3 WHEN DSSECMAPID = 'FCCC-SUN-AUTH-MAP' THEN 4 END as PRIORITY from PSDSSECMAPMAIN where STATUS='A' order by PRIORITY");
+   
+   While &mapSelect.Fetch(&authNMap, &dirID, &anonYN, &cnctDN, &tmpscope, &base, &authAttr, &sslYN, &order);
+      &scope = Lower(&tmpscope);
+      
+      &srvrSelect = CreateSQL("select DSSRVR, SEQNUM from PSDSSECMAPSRVR where DSSECMAPID=:1 order by SEQNUM ", &authNMap);
+      &host = "";
+      While &srvrSelect.Fetch(&srvr, &seqnum)
+         SQLExec("select LDAPPORT, LDAPSPORT from PSDSSRVR where DSDIRID=:1 and DSSRVR=:2", &dirID, &srvr, &tmpport, &sslport);
+         If &sslYN = "Y" Then
+            &host = &host | &srvr | ":" | &sslport | " ";
+            &port = &sslport;
+         Else
+            &host = &host | &srvr | ":" | &tmpport | " ";
+            &port = &tmpport;
+         End-If;
+      End-While;
+      
+      &pwdSelect = CreateSQL("select DSCNCTPWD, XLATDSPROD from PSDSDIR where DSDIRID=:1 and DSCNCTDN=:2", &dirID, &cnctDN);
+      &ret = &pwdSelect.Fetch(&cnctPWD, &dirProd);
+      
+      rem &authMap = create PT_SECURITY:LDAP:AuthenticationMap();
+      &authMap = create TU_LDAP:LDAP:AuthenticationMap();
+      &authMap.setAuthMapID(&authNMap);
+      &authMap.setDirID(&dirID);
+      &authMap.setDirProd(&dirProd);
+      &authMap.setConnectDN(&cnctDN);
+      &authMap.setScope(&scope);
+      &authMap.setBase(&base);
+      &authMap.setAuthAttr(&authAttr);
+      &authMap.setScope(&scope);
+      &authMap.setHost(&host);
+      &authMap.setPort(&port);
+      &authMap.setSSLPort(&sslport);
+      &authMap.setSSL(&sslYN);
+      &authMap.setConnectPWD(&cnctPWD);
+      
+      If &dirProd = "NSDS" Then
+         &authMap.setEmplidAttr("empNo");
+      Else
+         &authMap.setEmplidAttr("employeeID");
+      End-If;
+      
+      Evaluate &dirID
+      When = "TUHS_DIRECTORY"
+         rem &authMap.setDomain("tuh");
+         &authMap.setDomain("TUH");
+      When = "FCCC-MAD"
+         rem &authMap.setDomain("mad_computing");
+         &authMap.setDomain("MEDADMIN");
+      When = "FCCC-RITF"
+         rem &authMap.setDomain("research");
+         &authMap.setDomain("RITF");
+      When = "FCCC-SUN"
+         &authMap.setDomain("SunOne");
+      End-Evaluate;
+      
+      rem &AuthMaps.Push(&authMap);
+      %This.AuthMaps.Push(&authMap);
+      
+   End-While;
+end-method;
+
+method ClearDirectoryObject
+   %This.DirectoryObjects = CreateArrayRept(create TU_LDAP:LDAP:DirectoryObject(), 0);
+end-method;
+
+method ClearAttribute
+   %This.Attributes = CreateArrayRept(create TU_LDAP:LDAP:Attribute(), 0);
+end-method;
+
+method ClearAttributeChanges
+   %This.AttributeChanges = CreateArrayRept(create TU_LDAP:LDAP:Attribute(), 0);
+end-method;
+
+method ClearSearch
+   %This.SearchAttributes = CreateArrayRept(create TU_LDAP:LDAP:Attribute(), 0);
+   %This.ClearDirectoryObject();
+   %This.ClearAttribute();
+   %This.ClearAttributeChanges();
+   %This.SearchFilter = "";
+   %This.SearchFilterSet = False;
+   %This.SearchOr = False;
+   %This.DistinguishedName = "";
+end-method;
+
+method PopulateLDAPSearchArray
+   /+ &attributeName as String, +/
+   /+ &attributeValue as String +/
+   Local TU_LDAP:LDAP:Attribute &search;
+   &search = create TU_LDAP:LDAP:Attribute();
+   &search.AttributeName = &attributeName;
+   &search.AttributeValue = &attributeValue;
+   %This.SearchAttributes.Push(&search);
+end-method;
+
+method PopulateLDAPAttributeArray
+   /+ &attributeName as String, +/
+   /+ &attributeValue as String +/
+   Local TU_LDAP:LDAP:Attribute &attribute;
+   Local number &ldaparraypos;
+   Local string &value_str;
+   Local boolean &found = False;
+   
+   /* Populating Attributes we want to return */
+   If LTrim(RTrim(&attributeValue)) = "" Then
+      &attribute = create TU_LDAP:LDAP:Attribute();
+      &attribute.AttributeName = &attributeName;
+      &attribute.AttributeValue = &attributeValue;
+      %This.Attributes.Push(&attribute);
+   Else
+      /* Needs to account for multi value attributes */
+      &ldaparraypos = 0;
+      While %This.Attributes.Next(&ldaparraypos)
+         If %This.Attributes [&ldaparraypos].AttributeName = &attributeName Then
+            /* Only update this poperty/element if it is blank - dont want to overwrite existing multi entry attributes */
+            If %This.Attributes [&ldaparraypos].AttributeValue = "" Then
+               %This.Attributes [&ldaparraypos].AttributeValue = &attributeValue;
+               &found = True;
+            End-If;
+         End-If;
+      End-While;
+      
+      If Not (&found) Then
+         &attribute = create TU_LDAP:LDAP:Attribute();
+         &attribute.AttributeName = &attributeName;
+         &attribute.AttributeValue = &attributeValue;
+         %This.Attributes.Push(&attribute);
+      End-If;
+   End-If;
+end-method;
+
+method PopulateLDAPAttributeArrayChanges
+   /+ &attributeName as String, +/
+   /+ &attributeValue as String, +/
+   /+ &action as String +/
+   Local TU_LDAP:LDAP:Attribute &attribute;
+   Local number &ldaparraypos;
+   Local string &value_str;
+   Local boolean &found = False;
+   
+   /* Populating Attributes we want to return */
+   If LTrim(RTrim(&attributeValue)) = "" Then
+      &attribute = create TU_LDAP:LDAP:Attribute();
+      &attribute.AttributeName = &attributeName;
+      &attribute.AttributeValue = &attributeValue;
+      &attribute.AttributeAction = &action;
+      %This.AttributeChanges.Push(&attribute);
+   Else
+      /* Needs to account for multi value attributes */
+      &ldaparraypos = 0;
+      While %This.AttributeChanges.Next(&ldaparraypos)
+         If %This.AttributeChanges [&ldaparraypos].AttributeName = &attributeName Then
+            /* Only update this poperty/element if it is blank - dont want to overwrite existing multi entry attributes */
+            If %This.AttributeChanges [&ldaparraypos].AttributeValue = "" Then
+               %This.AttributeChanges [&ldaparraypos].AttributeValue = &attributeValue;
+               %This.AttributeChanges [&ldaparraypos].AttributeAction = &action;
+               &found = True;
+            End-If;
+         End-If;
+      End-While;
+      
+      If Not (&found) Then
+         &attribute = create TU_LDAP:LDAP:Attribute();
+         &attribute.AttributeName = &attributeName;
+         &attribute.AttributeValue = &attributeValue;
+         &attribute.AttributeAction = &action;
+         %This.AttributeChanges.Push(&attribute);
+      End-If;
+   End-If;
+end-method;
+
+method GetAllAttributes
+   /* SunOne */
+   If %This.AuthMaps [%This.AuthMapIndex].getDirProd() = "NSDS" Then
+      %This.PopulateLDAPAttributeArray("cn", " ");
+      %This.PopulateLDAPAttributeArray("costcenter", " ");
+      %This.PopulateLDAPAttributeArray("department", " ");
+      %This.PopulateLDAPAttributeArray("description", " ");
+      %This.PopulateLDAPAttributeArray("emNo", " ");
+      %This.PopulateLDAPAttributeArray("emailDrop", " ");
+      %This.PopulateLDAPAttributeArray("employeeType", " ");
+      %This.PopulateLDAPAttributeArray("fcccKronosManager", " ");
+      %This.PopulateLDAPAttributeArray("fcccemaildrop", " ");
+      %This.PopulateLDAPAttributeArray("fcccempTermDate", " ");
+      %This.PopulateLDAPAttributeArray("fcccfwauth", " ");
+      %This.PopulateLDAPAttributeArray("fcccfwauth", " ");
+      %This.PopulateLDAPAttributeArray("fcccwirelessmac", " ");
+      %This.PopulateLDAPAttributeArray("gecos", " ");
+      %This.PopulateLDAPAttributeArray("gidNumber", " ");
+      %This.PopulateLDAPAttributeArray("givenName", " ");
+      %This.PopulateLDAPAttributeArray("homeDirectory", " ");
+      %This.PopulateLDAPAttributeArray("initials", " ");
+      %This.PopulateLDAPAttributeArray("listbyOwner", " ");
+      %This.PopulateLDAPAttributeArray("listbySelf", " ");
+      %This.PopulateLDAPAttributeArray("loginShell", " ");
+      %This.PopulateLDAPAttributeArray("mail", " ");
+      %This.PopulateLDAPAttributeArray("manager", " ");
+      %This.PopulateLDAPAttributeArray("nsaccountlock", " ");
+      %This.PopulateLDAPAttributeArray("objectClass", " ");
+      %This.PopulateLDAPAttributeArray("role", " ");
+      %This.PopulateLDAPAttributeArray("sn", " ");
+      %This.PopulateLDAPAttributeArray("title", " ");
+      %This.PopulateLDAPAttributeArray("uid", " ");
+      %This.PopulateLDAPAttributeArray("uidNumber", " ");
+   Else /* AD */
+      %This.PopulateLDAPAttributeArray("accountExpires", " ");
+      %This.PopulateLDAPAttributeArray("cn", " ");
+      %This.PopulateLDAPAttributeArray("company", " ");
+      %This.PopulateLDAPAttributeArray("department", " ");
+      %This.PopulateLDAPAttributeArray("departmentNumber", " ");
+      %This.PopulateLDAPAttributeArray("distinguishedName", " ");
+      %This.PopulateLDAPAttributeArray("division", " ");
+      %This.PopulateLDAPAttributeArray("employeeID", " ");
+      %This.PopulateLDAPAttributeArray("employeeType", " ");
+      %This.PopulateLDAPAttributeArray("extensionAttribute14", " ");
+      %This.PopulateLDAPAttributeArray("extensionAttribute15", " ");
+      %This.PopulateLDAPAttributeArray("givenName", " ");
+      %This.PopulateLDAPAttributeArray("initials", " ");
+      %This.PopulateLDAPAttributeArray("mail", " ");
+      %This.PopulateLDAPAttributeArray("manager", " ");
+      %This.PopulateLDAPAttributeArray("memberOf", " ");
+      %This.PopulateLDAPAttributeArray("objectClass", " ");
+      %This.PopulateLDAPAttributeArray("sAMAccountName", " ");
+      %This.PopulateLDAPAttributeArray("sn", " ");
+      %This.PopulateLDAPAttributeArray("title", " ");
+      %This.PopulateLDAPAttributeArray("userPrincipalName", " ");
+   End-If;
+   
+end-method;
+
+method BuildLDAPSearchQuery
+   Local string &filter_string, &attribute, &value;
+   Local number &INDEX;
+   
+   rem (&(sAMAccountName=*)(|(sAMAccountName=DEHAVENJ)(employeeID=908890953)(sn=Dribin)))
+
+   If %This.SearchOr = False Then
+      &filter_string = "(&";
+   
+   If %This.AuthMaps [%This.AuthMapIndex].getDirProd() <> "NSDS" Then
+      &filter_string = &filter_string | "(&(sAMAccountName=*)";
+   Else
+      &filter_string = &filter_string | "(&(objectClass=person)";
+   End-If;
+   
+   If %This.SearchOr = True Then
+      &filter_string = &filter_string | "(|";
+   End-If;
+   
+   &INDEX = 0;
+   While %This.SearchAttributes.Next(&INDEX)
+      &attribute = %This.SearchAttributes [&INDEX].AttributeName;
+      &value = %This.SearchAttributes [&INDEX].AttributeValue;
+      &filter_string = &filter_string | "(" | &attribute | "=" | &value | ")";
+   End-While;
+   
+   If %This.SearchOr = True Then
+      &filter_string = &filter_string | "))";
+   Else
+      
+      &filter_string = &filter_string | ")";
+   End-If;
+   
+   %This.SearchFilter = &filter_string;
+   rem MessageBox(0, "", 0, 0, "%This.SearchFilter: " | %This.SearchFilter);
+end-method;
+
+method SearchLDAP
+   /+ &authMap as Number +/
+   Local TU_LDAP:LDAP:DirectoryObject &DirectoryObject;
+   Local Interlink &LDAP_SEARCH;
+   Local BIDocs &rootInDoc, &DirSearchParmsDoc, &rootOutDoc, &DirEntriesDoc, &AttribsDoc;
+   Local integer &RET, &EXECRSLT;
+   Local number &index, &nEntry, &i3, &numVals;
+   Local string &attributeName, &curDN, &str_curAttribName, &curAttrVal, &str_prevAttrName;
+   
+   %This.AuthMapIndex = &authMap;
+   %This.DistinguishedName = "";
+   
+   &LDAP_SEARCH = GetInterlink(Interlink.LDAP_SEARCH);
+   &LDAP_SEARCH.UserID_Attribute_Name = "uid";
+   &LDAP_SEARCH.URL = "file://psio_dir.dll";
+   &LDAP_SEARCH.BIDocValidating = "Off";
+   
+   If (%This.AuthMaps [%This.AuthMapIndex].isSSL()) Then
+      &LDAP_SEARCH.SSL = "YES";
+   Else
+      &LDAP_SEARCH.SSL = "NO";
+   End-If;
+   
+   If %This.Debug Then
+      rem MessageBox(0, "", 0, 0, "SearchLDAP() " | %This.AuthMaps [%This.AuthMapIndex].getHost() | " SearchFilter: " | %This.SearchFilter);
+      %This.LogFile.WriteLine("SearchLDAP() " | %This.AuthMaps [%This.AuthMapIndex].getHost() | " SearchFilter: " | %This.SearchFilter);
+   End-If;
+   
+   rem &rootInDoc = %This.LDAPSearch.GetInputDocs("");
+   &rootInDoc = &LDAP_SEARCH.GetInputDocs("");
+   &RET = &rootInDoc.AddValue("Connect_DN", %This.AuthMaps [%This.AuthMapIndex].getConnectDN());
+   &RET = &rootInDoc.AddValue("Connect_Password", Decrypt("dirmgrpwd", %This.AuthMaps [%This.AuthMapIndex].getConnectPWD()));
+   &DirSearchParmsDoc = &rootInDoc.AddDoc("Directory_Search_Parms");
+   &RET = &DirSearchParmsDoc.AddValue("Host", %This.AuthMaps [%This.AuthMapIndex].getHost());
+   &RET = &DirSearchParmsDoc.AddValue("Port", %This.AuthMaps [%This.AuthMapIndex].getPort());
+   &RET = &DirSearchParmsDoc.AddValue("Base", %This.AuthMaps [%This.AuthMapIndex].getBase());
+   &RET = &DirSearchParmsDoc.AddValue("Scope", %This.AuthMaps [%This.AuthMapIndex].getScope());
+   &RET = &DirSearchParmsDoc.AddValue("Filter", %This.SearchFilter);
+   rem MessageBox(0, "", 0, 0, "%This.AuthMapIndex: " | %This.AuthMapIndex | " Host: " | %This.AuthMaps [%This.AuthMapIndex].getHost() | " SearchFilter: " | %This.SearchFilter);
+   
+   If %This.Attributes.Len = 0 Then
+      %This.GetAllAttributes();
+   End-If;
+   
+   &index = 0;
+   While %This.Attributes.Next(&index)
+      &RET = &DirSearchParmsDoc.AddValue("Attributes", %This.Attributes [&index].AttributeName);
+   End-While;
+   
+   /** Execute and process out docs */
+   &EXECRSLT = &LDAP_SEARCH.Execute();
+   
+   If (&EXECRSLT <> 1) Then
+      &LDAP_SEARCH.Clear();
+   Else
+      &rootOutDoc = &LDAP_SEARCH.GetOutputDocs("");
+      &DirEntriesDoc = &rootOutDoc.GetDoc("Directory_Entries");
+      &nEntry = &rootOutDoc.GetCount("Directory_Entries");
+      
+      For &nEntry = &rootOutDoc.GetCount("Directory_Entries") To 1 Step - 1
+         &RET = &DirEntriesDoc.GetValue("Distinguished_Name", &curDN);
+         If %This.Debug Then
+            rem MessageBox(0, "", 0, 0, "&curDN: " | &curDN);
+            %This.LogFile.WriteLine("&curDN: " | &curDN);
+         End-If;
+         &DirectoryObject = create TU_LDAP:LDAP:DirectoryObject();
+         %This.ClearAttribute();
+         
+         If &curDN <> "" Then
+            &DirectoryObject.ObjectName = &curDN;
+            %This.DistinguishedName = &curDN;
+            &AttribsDoc = &DirEntriesDoc.GetDoc("Attribute");
+            For &i3 = &AttribsDoc.GetCount("Attribute") To 1 Step - 1
+               &RET = &AttribsDoc.GetValue("Attribute_Name", &str_curAttribName);
+               &numVals = &AttribsDoc.GetCount("Value");
+               While &numVals > 0
+                  &RET = &AttribsDoc.GetValue("Value", &curAttrVal);
+                  If %This.Debug Then
+                     rem MessageBox(0, "", 0, 0, "&str_curAttribName: " | &str_curAttribName | " &curAttrVal: " | &curAttrVal);
+                     %This.LogFile.WriteLine("&str_curAttribName: " | &str_curAttribName | " &curAttrVal: " | &curAttrVal);
+                  End-If;
+                  %This.PopulateLDAPAttributeArray(&str_curAttribName, &curAttrVal);
+                  &numVals = &numVals - 1;
+               End-While;
+               &RET = &AttribsDoc.GetNextDoc();
+               &str_prevAttrName = &str_curAttribName;
+            End-For;
+            &DirectoryObject.Attributes.Push(%This.Attributes);
+            %This.DirectoryObjects.Push(&DirectoryObject);
+         End-If;
+         &RET = &DirEntriesDoc.GetNextDoc();
+      End-For;
+   End-If;
+end-method;
+
+method AddLDAP
+   /+ &authMap as Number +/
+   
+   
+end-method;
+
+method ModifyLDAP
+   /+ &authMap as Number +/
+   
+   Local TU_LDAP:LDAP:DirectoryObject &DirectoryObject;
+   Local Interlink &LDAP_MODIFY;
+   Local BIDocs &inDoc, &DirSearchParmsDoc, &LDAPModsDoc, &AttributeDoc, &outDoc;
+   Local integer &RET, &EXECRSLT;
+   Local number &index, &returnStatus;
+   Local string &returnMessage;
+   
+   %This.AuthMapIndex = &authMap;
+   %This.DistinguishedName = "";
+   
+   &LDAP_MODIFY = GetInterlink(Interlink.LDAP_MODIFY);
+   &LDAP_MODIFY.UserID_Attribute_Name = %This.AuthMaps [%This.AuthMapIndex].getAuthAttr();
+   &LDAP_MODIFY.URL = "file://psio_dir.dll";
+   &LDAP_MODIFY.BIDocValidating = "Off";
+   
+   If (%This.AuthMaps [%This.AuthMapIndex].isSSL()) Then
+      &LDAP_MODIFY.SSL = "YES";
+   Else
+      &LDAP_MODIFY.SSL = "NO";
+   End-If;
+   
+   If %This.DistinguishedName = "" Then
+      Warning "DIdnt Search yet";
+      %This.SearchLDAP(&authMap);
+   Else
+      Warning "Already searched " | %This.DistinguishedName;
+   End-If;
+   
+   /* Test Is the old attribute setting available alongside the new direvcoty object for comparison */
+   Local number &j, &j1;
+   For &j = 1 To %This.DirectoryObjects.Len
+      For &j1 = 1 To %This.DirectoryObjects [&j].Attributes.Len
+         If %This.DirectoryObjects [&j].Attributes [&j1].AttributeName = "listbySelf" Then
+            MessageBox(0, "", 0, 0, "listbySelf: " | %This.DirectoryObjects [&j].Attributes [&j1].AttributeValue | " action: " | %This.DirectoryObjects [&j].Attributes [&j1].AttributeAction);
+         End-If;
+      End-For;
+   End-For;
+   
+   Warning "Distinguished_Name " | %This.DistinguishedName;
+   
+   /* Add attributes from inout Array */
+   If %This.DistinguishedName <> "" Then
+      &index = 0;
+      While %This.AttributeChanges.Next(&index)
+         MessageBox(0, "", 0, 0, %This.AttributeChanges [&index].AttributeAction | " AttributeName: " | %This.AttributeChanges [&index].AttributeName | " AttributeValue: " | %This.AttributeChanges [&index].AttributeValue);
+         rem &RET = &DirSearchParmsDoc.AddValue("Attributes", %This.Attributes [&index].AttributeName);
+         
+         /** Add inputs **/
+         &inDoc = &LDAP_MODIFY.GetInputDocs("");
+         &RET = &inDoc.AddValue("Server", %This.AuthMaps [%This.AuthMapIndex].getHost());
+         &RET = &inDoc.AddValue("Port", %This.AuthMaps [%This.AuthMapIndex].getPort());
+         &RET = &inDoc.AddValue("Connect_DN", %This.AuthMaps [%This.AuthMapIndex].getConnectDN());
+         &RET = &inDoc.AddValue("Connect_Password", Decrypt("dirmgrpwd", %This.AuthMaps [%This.AuthMapIndex].getConnectPWD()));
+         &RET = &inDoc.AddValue("Distinguished_Name", %This.DistinguishedName);
+         
+         &LDAPModsDoc = &inDoc.AddDoc("LDAPMods");
+         &RET = &LDAPModsDoc.AddValue("Action", %This.AttributeChanges [&index].AttributeAction);
+         &AttributeDoc = &LDAPModsDoc.AddDoc("Attribute");
+         &RET = &AttributeDoc.AddValue("Attribute_Name", %This.AttributeChanges [&index].AttributeName);
+         &RET = &AttributeDoc.AddValue("Value", %This.AttributeChanges [&index].AttributeValue);
+         
+         If %This.Debug Then
+            %This.LogFile.WriteLine(%This.AttributeChanges [&index].AttributeAction | " AttributeName: " | %This.AttributeChanges [&index].AttributeName | " AttributeValue: " | %This.AttributeChanges [&index].AttributeValue);
+         End-If;
+         
+         &EXECRSLT = &LDAP_MODIFY.Execute();
+         If (&EXECRSLT <> 1) Then /* The instance failed to execute */
+            &LDAP_MODIFY.Clear();
+            &returnStatus = - 1;
+            &returnMessage = "The instance failed to execute";
+         Else
+            &outDoc = &LDAP_MODIFY.GetOutputDocs("");
+            &RET = &outDoc.GetValue("return_status", &returnStatus);
+            &RET = &outDoc.GetValue("return_status_msg", &returnMessage);
+         End-If;
+         
+         %This.AttributeChanges [&index].AttributeResult = "&returnStatus: " | &returnStatus | " &returnMessage: " | &returnMessage;
+      End-While;
+   End-If;
+end-method;
+
+method DoesUserIDExist
+   /+ &userID as String, +/
+   /+ &inEmplid as String, +/
+   /+ &emplidArray as Array of String out, +/
+   /+ &isSameEmplid as Boolean out +/
+   /+ Returns Boolean +/
+   Local number &i, &i1;
+   Local string &strEmplid;
+   
+   &isSameEmplid = True;
+   &emplidArray = CreateArrayRept("", 0);
+   
+   For &i = 1 To %This.AuthMaps.Len
+      %This.ClearSearch();
+      %This.PopulateLDAPSearchArray(%This.AuthMaps [&i].getAuthAttr(), &userID);
+      %This.PopulateLDAPAttributeArray(%This.AuthMaps [&i].getAuthAttr(), "");
+      %This.PopulateLDAPAttributeArray(%This.AuthMaps [&i].getEmplidAttr(), "");
+      %This.SearchLDAP(&i);
+      
+      For &i1 = 1 To %This.DirectoryObjects.Len
+         %This.DirectoryObjects [&i1].SetVariableFromAttribute(%This.AuthMaps [&i].getEmplidAttr(), &strEmplid);
+         &emplidArray.Push(&strEmplid);
+         If RTrim(&strEmplid) <> RTrim(&inEmplid) Then
+            &isSameEmplid = False;
+         End-If;
+      End-For;
+   End-For;
+   
+   If &emplidArray.Len > 0 Then
+      Return True;
+   Else
+      Return False;
+   End-If;
+   
+end-method;
+
