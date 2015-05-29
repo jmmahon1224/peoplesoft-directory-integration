@@ -1,0 +1,16 @@
+class Attribute
+   property string AttributeName;
+   property string AttributeValue;
+   property string AttributeAction;
+   property string AttributeResult;
+   
+   method Attribute();
+end-class;
+
+method Attribute
+   %This.AttributeName = "";
+   %This.AttributeValue = "";
+   %This.AttributeAction = "replace";
+   %This.AttributeResult = "";
+   
+end-method;
