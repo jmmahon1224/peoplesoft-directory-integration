@@ -1,0 +1,66 @@
+import PT_SECURITY:LDAP:*;
+import TU_LDAP:LDAP:*;
+
+class DirectoryObject
+   property string ObjectName;
+   property array of TU_LDAP:LDAP:Attribute Attributes;
+   
+   method GetUserID() Returns string;
+   method GetEmployeeID() Returns string;
+   method SetVariableFromAttribute(&attributeName As string, &attributeValue As string out);
+   method DirectoryObject();
+   
+end-class;
+
+method DirectoryObject
+   %This.ObjectName = "";
+   %This.Attributes = CreateArrayRept(create TU_LDAP:LDAP:Attribute(), 0);
+end-method;
+
+method GetUserID
+   /+ Returns String +/
+   Local number &i;
+   
+   For &i = 1 To %This.Attributes.Len
+      Evaluate Upper(%This.Attributes [&i].AttributeName)
+      When = "SAMACCOUNTNAME"
+      When = "UID"
+         Return %This.Attributes [&i].AttributeValue;
+      End-Evaluate;
+   End-For;
+   
+   Return "";
+   
+end-method;
+
+method GetEmployeeID
+   /+ Returns String +/
+   Local number &i;
+   
+   For &i = 1 To %This.Attributes.Len
+      Evaluate Upper(%This.Attributes [&i].AttributeName)
+      When = "EMPLOYEEID"
+      When = "EMPNO"
+         Return %This.Attributes [&i].AttributeValue;
+      End-Evaluate;
+   End-For;
+   
+   Return "";
+end-method;
+
+method SetVariableFromAttribute
+   /+ &attributeName as String, +/
+   /+ &attributeValue as String out +/
+   Local number &i;
+   
+   For &i = 1 To %This.Attributes.Len
+      If Upper(%This.Attributes [&i].AttributeName) = Upper(&attributeName) Then
+         If Upper(&attributeName) = "SAMACCOUNTNAME" Or
+               Upper(&attributeName) = "UID" Then
+            &attributeValue = Upper(%This.Attributes [&i].AttributeValue);
+         Else
+            &attributeValue = %This.Attributes [&i].AttributeValue;
+         End-If;
+      End-If;
+   End-For;
+end-method;
